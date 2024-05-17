@@ -1,5 +1,13 @@
 <template>
   <v-row no-gutters class="pa-4" justify="center">
+    <v-col cols="12" class="mb-4">
+      <v-text-field
+        v-model="searchQuery"
+        label="Search by Student ID"
+        clearable
+        @input="filterReservations"
+      ></v-text-field>
+    </v-col>
     <v-col v-if="isAdmin" cols="12">
       <v-row>
         <v-col cols="12" xxl="3" xl="3" lg="3" md="6" sm="12">
@@ -12,7 +20,7 @@
             </v-row>
           </v-card>
         </v-col>
-
+      
         <v-col cols="12" xxl="3" xl="3" lg="3" md="6" sm="12">
           <v-card width="100%">
             <v-row no-gutters class="pa-8">
@@ -23,13 +31,12 @@
             </v-row>
           </v-card>
         </v-col>
-
         <v-col cols="12" xxl="3" xl="3" lg="3" md="6" sm="12">
           <v-card width="100%">
             <v-row no-gutters class="pa-8">
               <v-col cols="12"> Earnings(Uniform) </v-col>
               <v-col cols="12" class="text-h6 font-weight-bold">
-                PHP {{ uniformEarnings.toFixed(2) }}
+                PHP {{ uniformEarnings }}
               </v-col>
             </v-row>
           </v-card>
@@ -40,14 +47,13 @@
             <v-row no-gutters class="pa-8">
               <v-col cols="12"> Earnings(Book) </v-col>
               <v-col cols="12" class="text-h6 font-weight-bold">
-                PHP {{ bookEarnings.toFixed(2) }}
+                PHP {{ bookEarnings }}
               </v-col>
             </v-row>
           </v-card>
         </v-col>
       </v-row>
     </v-col>
-
     <v-col cols="12" class="mt-4">
       <v-card flat style="border-width: thin">
         <v-table density="compact" fixed-header style="max-height: 67vh">
@@ -65,7 +71,7 @@
           </thead>
           <tbody>
             <template
-              v-for="(reservationItem, index) in reservationList"
+              v-for="(reservationItem, index) in filteredReservations"
               :key="reservationItem.id"
             >
               <tr>
@@ -146,6 +152,7 @@
 
 <script setup>
 import axios from 'axios';
+import { ref, computed, onMounted } from 'vue';
 
 definePageMeta({
   layout: "admin-default",
@@ -161,20 +168,19 @@ const { formatNumberIntoString } = useUtils();
 // const { isAdmin } = useLocalAuth();
 
 const reservationList = ref([]);
+const searchQuery = ref('');
 
 const isAdmin = ref(false);
 
-onMounted( () => {
+onMounted(() => {
+  isAdmin.value = JSON.parse(localStorage.getItem('adminLogin')).adminID ? true : false;
 
-isAdmin.value = JSON.parse(localStorage.getItem('adminLogin')).adminID ? true : false;
-
-axios.get("http://localhost:8000/api/reservationdetails/").then(data => {
-  reservationList.value = data.data
-}).catch(err => {
-  console.error(err)
-})
-
-})
+  axios.get("http://localhost:8000/api/reservationdetails/").then(data => {
+    reservationList.value = data.data;
+  }).catch(err => {
+    console.error(err);
+  });
+});
 
 function setReservationStatus(reservationItem, status, studentID, message, index) {
   const formData = new FormData();
@@ -193,8 +199,8 @@ function setReservationStatus(reservationItem, status, studentID, message, index
     alert('Reservation status updated!');
   }).catch(err => {
     console.error(err);
-    alert('Oops, something went wrong')
-  })
+    alert('Oops, something went wrong');
+  });
 }
 
 function deleteReservation(reservationItem, studentID, message, index) {
@@ -223,11 +229,6 @@ function deleteReservation(reservationItem, studentID, message, index) {
       alert('Oops, something went wrong');
     });
 }
-
-
-
-
-
 
 const formatDate = (dateString) => {
   const date = new Date(dateString);
@@ -260,18 +261,16 @@ function handleChipClick(reservationItem, item, reservationId) {
       reservation['items'] = JSON.stringify(items);
       reservation['totalAmount'] = newTotal; // Update items in reservation object
 
-      reservationItems.value[index] = reservation;
-      alert('Resrvation item deleted successfully!');
+      reservationItems.value[index] = reservation;      alert('Reservation item deleted successfully!');
       window.location.reload(); // Refresh the page after alert
     }).catch(err => {
       console.error(err);
-      alert('Oops, something went wrong')
-    })
+      alert('Oops, something went wrong');
+    });
   }
 }
 
-
-const getEarningsByPeriod = (period) => {
+const getEarningsByPeriod = (period, stockType) => {
   const today = new Date();
   const filteredList = reservationList.value.filter((reservation) => {
     const reservationDate = new Date(reservation.date);
@@ -280,7 +279,10 @@ const getEarningsByPeriod = (period) => {
       reservationDate.getDate() === today.getDate();
   });
 
-  return filteredList.reduce((total, reservation) => total + reservation.total, 0);
+  // Filter by stock type
+  const filteredByStockType = filteredList.filter(reservation => reservation.stockType === stockType);
+
+  return filteredByStockType.reduce((total, reservation) => total + reservation.total, 0);
 };
 
 const monthlyEarnings = computed(() => {
@@ -294,17 +296,35 @@ const dailyEarnings = computed(() => {
 });
 
 const uniformEarnings = computed(() => {
-  return reservationList.value
-    .flatMap(reservation => JSON.parse(JSON.parse(reservation.items)))
+  const total = reservationList.value
+    .flatMap(reservation => {
+      try {
+        return JSON.parse(JSON.parse(reservation.items));
+      } catch (e) {
+        console.error("Error parsing reservation items:", e);
+        return [];
+      }
+    })
     .filter(item => item.category === "uniform")
-    .reduce((acc, item) => acc + item.totalPrice, 0);
+    .reduce((acc, item) => acc + (item.totalPrice || 0), 0);
+  
+  return total.toFixed(2);
 });
 
 const bookEarnings = computed(() => {
-  return reservationList.value
-    .flatMap(reservation => JSON.parse(JSON.parse(reservation.items)))
+  const total = reservationList.value
+    .flatMap(reservation => {
+      try {
+        return JSON.parse(JSON.parse(reservation.items));
+      } catch (e) {
+        console.error("Error parsing reservation items:", e);
+        return [];
+      }
+    })
     .filter(item => item.category === "book")
-    .reduce((acc, item) => acc + item.totalPrice, 0);
+    .reduce((acc, item) => acc + (item.totalPrice || 0), 0);
+  
+  return total.toFixed(2);
 });
 
 function removeReservationItem(item) {
@@ -312,10 +332,12 @@ function removeReservationItem(item) {
   reservationList.value.splice(index, 1);
 }
 
-
-const sortedReservationItems = computed(() =>
-  reservationItems.value.sort((a, b) => b.id - a.id),
-);
-
-
+const filteredReservations = computed(() => {
+  if (!searchQuery.value) {
+    return reservationList.value;
+  }
+  return reservationList.value.filter(reservation =>
+    reservation.student.toString().includes(searchQuery.value)
+  );
+});
 </script>
