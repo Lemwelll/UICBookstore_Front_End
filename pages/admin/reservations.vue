@@ -339,5 +339,7 @@ const filteredReservations = computed(() => {
   return reservationList.value.filter(reservation =>
     reservation.student.toString().includes(searchQuery.value)
   );
+  
 });
 </script>
+
